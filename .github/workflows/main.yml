@@ -517,6 +517,10 @@ jobs:
             /tmp/final_dump/ \
             ./
 
+          find . -not -path './.git/*' -type f -name '*.img' -size +50M -print0 | while IFS= read -r -d '' img; do xz -T0 -6 "$img" 2>/dev/null || true; done
+
+          find . -not -path './.git/*' -type f -size +95M -delete 2>/dev/null || true
+
           find . \
             -not -path './.git/*' \
             -type f |
@@ -996,13 +1000,14 @@ jobs:
 
 
           # ========================================================
-          # REMOVE HUGE APK
+          # REMOVE HUGE FILES
           # ========================================================
+
+          find . -type f -name '*.img' -size +50M -print0 | while IFS= read -r -d '' img; do xz -T0 -6 "$img" 2>/dev/null || true; done
 
           find . \
             -type f \
-            -name '*.apk' \
-            -size +100M \
+            -size +95M \
             -delete 2>/dev/null || true
 
 
