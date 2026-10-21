@@ -369,35 +369,6 @@ jobs:
       # RECOVERY FALLBACK
       # ============================================================
 
-      - name: Recovery fallback from vendor_boot
-        run: |
-          set -e
-
-          if ! find /tmp/final_dump \
-              -type f \
-              -iname 'recovery.img' |
-              grep -q .; then
-
-            vb=$(find /tmp/final_dump \
-              -type f \
-              -iname 'vendor_boot*.img' |
-              head -n1 || true)
-
-            if [ -n "$vb" ] && [ -f "$vb" ]; then
-
-              cp "$vb" \
-                /tmp/final_dump/recovery_from_vendor_boot.img
-
-              echo "recovery_fallback=vendor_boot" \
-                >> /tmp/final_dump/_dump_info.txt
-
-              echo "recovery_source_file=$(basename "$vb")" \
-                >> /tmp/final_dump/_dump_info.txt
-
-            fi
-          fi
-
-
       # ============================================================
       # OPTIONAL COMPRESSION
       # ============================================================
