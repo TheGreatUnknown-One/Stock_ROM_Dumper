@@ -145,40 +145,53 @@ jobs:
       # ============================================================
 
       - name: Install dependencies
+        shell: bash
         run: |
           set -Eeuo pipefail
 
+          echo "Updating Ubuntu package indexes..."
           sudo apt-get update
 
-          # Required by DumprX and the workflow itself.
-          sudo apt-get install -y --no-install-recommends \\
-            git \\
-            git-lfs \\
-            curl \\
-            wget \\
-            aria2 \\
-            jq \\
-            file \\
-            rsync \\
-            unzip \\
-            zip \\
-            tar \\
-            python3 \\
-            python3-pip \\
-            python3-venv \\
-            xz-utils \\
-            p7zip-full \\
-            brotli \\
-            lz4 \\
-            gawk \\
-            cpio \\
-            e2fsprogs \\
-            liblzma-dev \\
-            liblz4-dev \\
-            openssh-client
+          # Enable Universe: several DumprX helper packages are published there.
+          if command -v add-apt-repository >/dev/null 2>&1; then
+            sudo add-apt-repository -y universe
+          else
+            sudo apt-get install -y --no-install-recommends software-properties-common
+            sudo add-apt-repository -y universe
+          fi
+          sudo apt-get update
 
-          # DumprX's setup.sh lists several legacy/optional packages.
-          # Install them one by one so one missing package cannot stop the job.
+          # Required tools. Use the current Ubuntu package name for LZ4.
+          required_pkgs=(
+            git
+            git-lfs
+            curl
+            wget
+            aria2
+            jq
+            file
+            rsync
+            unzip
+            zip
+            tar
+            python3
+            python3-pip
+            python3-venv
+            xz-utils
+            p7zip-full
+            brotli
+            lz4
+            gawk
+            cpio
+            e2fsprogs
+            liblzma-dev
+            liblz4-dev
+            openssh-client
+          )
+
+          sudo apt-get install -y --no-install-recommends "${required_pkgs[@]}"
+
+          # Optional DumprX helpers: missing packages must not abort the job.
           optional_pkgs=(
             sharutils
             cabextract
@@ -200,26 +213,20 @@ jobs:
           )
 
           for pkg in "${optional_pkgs[@]}"; do
-            if apt-cache show "$pkg" >/dev/null 2>&1; then
-              echo "Installing optional package: $pkg"
-              sudo apt-get install -y --no-install-recommends "$pkg" || \\
-                echo "WARNING: Could not install optional package: $pkg"
+            echo "Checking optional package: ${pkg}"
+            if apt-cache show "${pkg}" >/dev/null 2>&1; then
+              if sudo apt-get install -y --no-install-recommends "${pkg}"; then
+                echo "Installed optional package: ${pkg}"
+              else
+                echo "WARNING: Could not install optional package: ${pkg}; continuing."
+              fi
             else
-              echo "Skipping unavailable optional package: $pkg"
+              echo "Optional package unavailable in enabled repositories: ${pkg}; skipping."
             fi
           done
 
-          # DumprX calls both uv and uvx for Python-based extractors.
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.local/bin:$PATH"
-
-          uv --version
-          uvx --version
           git lfs install --system || true
-
-          echo "Dependency installation completed."
-
+          echo "Dependency installation completed successfully."
 
       # ============================================================
       # VALIDATE URL
@@ -227,12 +234,10 @@ jobs:
 
       - name: Validate URL
         id: input
-        env:
-          ROM_URL: ${{ inputs.rom_url }}
         run: |
           set -e
 
-          URL="$ROM_URL"
+          URL='${{ inputs.rom_url }}'
 
           if [ -z "$URL" ]; then
             echo "ERROR: rom_url is empty"
@@ -271,8 +276,6 @@ jobs:
       # ============================================================
 
       - name: Run DumprX with exact URL
-        env:
-          ROM_URL: ${{ steps.input.outputs.rom_url }}
         run: |
           set +e
 
@@ -282,7 +285,7 @@ jobs:
 
           export TERM=xterm
 
-          ./dumper.sh "$ROM_URL"
+          ./dumper.sh '${{ steps.input.outputs.rom_url }}'
 
           code=$?
 
@@ -337,9 +340,6 @@ jobs:
 
       - name: Resolve target branch
         id: branch
-        env:
-          TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
-          DEVICE_NAME_INPUT: ${{ inputs.device_name }}
         run: |
           set -e
 
@@ -353,7 +353,7 @@ jobs:
                  s/-+$//'
           }
 
-          input="$TARGET_BRANCH_INPUT"
+          input='${{ inputs.target_branch }}'
 
           if [ -n "$input" ] && [ "$input" != "auto" ]; then
 
@@ -376,7 +376,7 @@ jobs:
               "$readme" 2>/dev/null || true)
 
             [ -n "$brand" ] || brand=stock
-            [ -n "$code" ] || code="$DEVICE_NAME_INPUT"
+            [ -n "$code" ] || code='${{ inputs.device_name }}'
 
             out=$(sanitize "dump-$brand-$code-$incr")
 
@@ -500,9 +500,9 @@ jobs:
               "$REMOTE_URL" \
               "$BRANCH" >/dev/null 2>&1; then
 
-            git fetch --depth=1 origin "$BRANCH"
+            git fetch origin "$BRANCH" --depth=1
 
-            git checkout -B "$BRANCH" FETCH_HEAD
+            git checkout "$BRANCH"
 
           else
 
@@ -584,8 +584,6 @@ jobs:
       - name: Resolve GitLab repo name
         id: gitlab_repo
         if: inputs.upload_gitlab == 'true'
-        env:
-          DEVICE_NAME_INPUT: ${{ inputs.device_name }}
         run: |
           set -e
 
@@ -610,7 +608,7 @@ jobs:
             "$readme" 2>/dev/null || true)
 
           [ -n "$brand" ] || brand=stock
-          [ -n "$code" ] || code="$DEVICE_NAME_INPUT"
+          [ -n "$code" ] || code='${{ inputs.device_name }}'
 
           repo_name=$(sanitize "dump-$brand-$code")
 
