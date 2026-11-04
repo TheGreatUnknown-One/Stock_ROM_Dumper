@@ -87,7 +87,7 @@ on:
 jobs:
   dump-rom:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     concurrency:
       group: dumprx-${{ github.event.inputs.rom_url }}
@@ -146,55 +146,79 @@ jobs:
 
       - name: Install dependencies
         run: |
-          set -e
+          set -Eeuo pipefail
 
-          sudo apt-get update -qq
+          sudo apt-get update
 
-          sudo apt-get install -y --no-install-recommends \
-            git \
-            git-lfs \
-            curl \
-            jq \
-            file \
-            rsync \
-            unzip \
-            tar \
-            zip \
-            python3 \
-            python3-pip \
-            xz-utils \
-            p7zip-full \
-            sharutils \
-            cabextract \
-            brotli \
-            liblz4-tool \
-            gawk \
-            detox \
-            cpio \
-            rename \
-            device-tree-compiler \
-            e2fsprogs \
+          # Required by DumprX and the workflow itself.
+          sudo apt-get install -y --no-install-recommends \\
+            git \\
+            git-lfs \\
+            curl \\
+            wget \\
+            aria2 \\
+            jq \\
+            file \\
+            rsync \\
+            unzip \\
+            zip \\
+            tar \\
+            python3 \\
+            python3-pip \\
+            python3-venv \\
+            xz-utils \\
+            p7zip-full \\
+            brotli \\
+            lz4 \\
+            gawk \\
+            cpio \\
+            e2fsprogs \\
+            liblzma-dev \\
+            liblz4-dev \\
             openssh-client
 
+          # DumprX's setup.sh lists several legacy/optional packages.
+          # Install them one by one so one missing package cannot stop the job.
           optional_pkgs=(
+            sharutils
+            cabextract
+            detox
+            rename
+            device-tree-compiler
+            unace
             unrar
-            android-sdk-libsparse-utils
+            unrar-free
+            p7zip-rar
+            rar
+            uudeview
+            mpack
+            arj
+            axel
             e2tools
             erofs-utils
+            android-sdk-libsparse-utils
           )
 
           for pkg in "${optional_pkgs[@]}"; do
             if apt-cache show "$pkg" >/dev/null 2>&1; then
-              sudo apt-get install \
-                -y \
-                --no-install-recommends \
-                "$pkg" || true
+              echo "Installing optional package: $pkg"
+              sudo apt-get install -y --no-install-recommends "$pkg" || \\
+                echo "WARNING: Could not install optional package: $pkg"
             else
-              echo "Optional package not available: $pkg"
+              echo "Skipping unavailable optional package: $pkg"
             fi
           done
 
+          # DumprX calls both uv and uvx for Python-based extractors.
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+
+          uv --version
+          uvx --version
           git lfs install --system || true
+
+          echo "Dependency installation completed."
 
 
       # ============================================================
@@ -203,10 +227,12 @@ jobs:
 
       - name: Validate URL
         id: input
+        env:
+          ROM_URL: ${{ inputs.rom_url }}
         run: |
           set -e
 
-          URL='${{ inputs.rom_url }}'
+          URL="$ROM_URL"
 
           if [ -z "$URL" ]; then
             echo "ERROR: rom_url is empty"
@@ -245,6 +271,8 @@ jobs:
       # ============================================================
 
       - name: Run DumprX with exact URL
+        env:
+          ROM_URL: ${{ steps.input.outputs.rom_url }}
         run: |
           set +e
 
@@ -254,7 +282,7 @@ jobs:
 
           export TERM=xterm
 
-          ./dumper.sh '${{ steps.input.outputs.rom_url }}'
+          ./dumper.sh "$ROM_URL"
 
           code=$?
 
@@ -309,6 +337,9 @@ jobs:
 
       - name: Resolve target branch
         id: branch
+        env:
+          TARGET_BRANCH_INPUT: ${{ inputs.target_branch }}
+          DEVICE_NAME_INPUT: ${{ inputs.device_name }}
         run: |
           set -e
 
@@ -322,7 +353,7 @@ jobs:
                  s/-+$//'
           }
 
-          input='${{ inputs.target_branch }}'
+          input="$TARGET_BRANCH_INPUT"
 
           if [ -n "$input" ] && [ "$input" != "auto" ]; then
 
@@ -345,7 +376,7 @@ jobs:
               "$readme" 2>/dev/null || true)
 
             [ -n "$brand" ] || brand=stock
-            [ -n "$code" ] || code='${{ inputs.device_name }}'
+            [ -n "$code" ] || code="$DEVICE_NAME_INPUT"
 
             out=$(sanitize "dump-$brand-$code-$incr")
 
@@ -469,9 +500,9 @@ jobs:
               "$REMOTE_URL" \
               "$BRANCH" >/dev/null 2>&1; then
 
-            git fetch origin "$BRANCH" --depth=1
+            git fetch --depth=1 origin "$BRANCH"
 
-            git checkout "$BRANCH"
+            git checkout -B "$BRANCH" FETCH_HEAD
 
           else
 
@@ -553,6 +584,8 @@ jobs:
       - name: Resolve GitLab repo name
         id: gitlab_repo
         if: inputs.upload_gitlab == 'true'
+        env:
+          DEVICE_NAME_INPUT: ${{ inputs.device_name }}
         run: |
           set -e
 
@@ -577,7 +610,7 @@ jobs:
             "$readme" 2>/dev/null || true)
 
           [ -n "$brand" ] || brand=stock
-          [ -n "$code" ] || code='${{ inputs.device_name }}'
+          [ -n "$code" ] || code="$DEVICE_NAME_INPUT"
 
           repo_name=$(sanitize "dump-$brand-$code")
 
